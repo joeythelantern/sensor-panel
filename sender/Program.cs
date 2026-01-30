@@ -151,11 +151,9 @@ class Sender
             received += stats.BytesReceived;
         }
 
-        // Calculate delta since last call
         long deltaSent = sent - prevSent;
         long deltaReceived = received - prevReceived;
 
-        // Update previous values for next call
         prevSent = sent;
         prevReceived = received;
 

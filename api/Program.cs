@@ -31,7 +31,7 @@ app.MapPost("/stats", async (HttpContext ctx) =>
         stats.Add(stat);
 
         if (stats.Count > 100)
-            stats.RemoveAt(0); // keep last 100
+            stats.RemoveAt(0);
 
         Console.WriteLine($"Received stat at {stat["timestamp"]}. Total stored: {stats.Count}");
         return Results.Ok(new { message = "Stat saved", count = stats.Count });
