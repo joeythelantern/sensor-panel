@@ -1,5 +1,6 @@
 ﻿using System.Text;
-using System.Text.Json;
+using Modules;
+using Newtonsoft.Json;
 using System.Runtime.Versioning;
 using LibreHardwareMonitor.Hardware;
 
@@ -45,17 +46,17 @@ class Sender
                 foreach (var hardware in computer.Hardware)
                     hardware.Update();
 
-                var payload = new
+                var payload = new StatData
                 {
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                    cpu = GetCpuStats(computer),
-                    memory = GetMemoryStats(computer),
-                    gpu = GetGpuStats(computer),
-                    disk = GetDiskStats(),
-                    network = GetNetworkStats()
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    Cpu = GetCpuStats(computer),
+                    Memory = GetMemoryStats(computer),
+                    Gpu = GetGpuStats(computer),
+                    Disk = GetDiskStats(),
+                    Network = GetNetworkStats()
                 };
 
-                string json = JsonSerializer.Serialize(payload);
+                string json = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
                 await client.PostAsync(endpoint, content);
             }
@@ -68,57 +69,53 @@ class Sender
         }
     }
 
-    static object GetCpuStats(Computer computer)
+    static CpuStat GetCpuStats(Computer computer)
     {
         var cpu = computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Cpu);
-        if (cpu == null) return new { usage = 0.0, temperatures = Array.Empty<double>() };
+        if (cpu == null) return new CpuStat();
 
         var usageSensor = cpu.Sensors.FirstOrDefault(s => s.Name == CPU_LOAD);
 
-        return new
+        return new CpuStat
         {
-            usage = Math.Round(usageSensor?.Value ?? 0, 2)
+            Usage = Math.Round(usageSensor?.Value ?? 0, 2)
         };
     }
 
-    static object GetMemoryStats(Computer computer)
+    static MemoryStat GetMemoryStats(Computer computer)
     {
         var ram = computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Memory);
-        if (ram == null) return new { percent = 0.0, total_bytes = 0L, used_bytes = 0L };
+        if (ram == null) return new MemoryStat();
 
         ram.Update();
 
-        var used = ram.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Data && s.Name == MEMORY_USED)?.Value ?? 0;
-        var available = ram.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Data && s.Name == MEMORY_AVAILABLE)?.Value ?? 1;
         var load = ram.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Load && s.Name == MEMORY_LOAD)?.Value ?? 0; ;
 
-        return new
+        return new MemoryStat
         {
-            used,
-            available,
-            load
+            Load = load
         };
     }
 
-    static object GetGpuStats(Computer computer)
+    static GpuStat GetGpuStats(Computer computer)
     {
         var gpu = computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.GpuNvidia || h.HardwareType == HardwareType.GpuAmd);
-        if (gpu == null) return new { temperature = (double?)null, power = 0.0, memory_total = 0L, memory_used = 0L };
+        if (gpu == null) return new GpuStat();
 
         gpu.Update();
 
         var socketPower = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Power && s.Name == GPU_SOCKET_POWER);
         var corePower = gpu.Sensors.FirstOrDefault(s => s.SensorType == SensorType.Power && s.Name == GPU_CORE_POWER);
 
-        return new
+        return new GpuStat
         {
-            socketPower = Math.Round(socketPower?.Value ?? 0, 2),
-            corePower = Math.Round(corePower?.Value ?? 0, 2)
+            SocketPower = (int)Math.Round(socketPower?.Value ?? 0),
+            CorePower = (int)Math.Round(corePower?.Value ?? 0)
         };
     }
 
     [SupportedOSPlatform("windows")]
-    static object GetDiskStats()
+    static DiskStat GetDiskStats()
     {
         var diskRead = new System.Diagnostics.PerformanceCounter("PhysicalDisk", "Disk Read Bytes/sec", "_Total");
         var diskWrite = new System.Diagnostics.PerformanceCounter("PhysicalDisk", "Disk Write Bytes/sec", "_Total");
@@ -127,17 +124,17 @@ class Sender
         diskWrite.NextValue();
         Thread.Sleep(1000);
 
-        return new
+        return new DiskStat
         {
-            read_bytes_per_sec = (long)diskRead.NextValue(),
-            write_bytes_per_sec = (long)diskWrite.NextValue()
+            Read_bytes_per_sec = (long)diskRead.NextValue(),
+            Write_bytes_per_sec = (long)diskWrite.NextValue()
         };
     }
 
     static long prevSent = 0;
     static long prevReceived = 0;
 
-    static object GetNetworkStats()
+    static NetworkStat GetNetworkStats()
     {
         long sent = 0, received = 0;
 
@@ -157,10 +154,10 @@ class Sender
         prevSent = sent;
         prevReceived = received;
 
-        return new
+        return new NetworkStat
         {
-            bytes_sent_per_sec = deltaSent,
-            bytes_received_per_sec = deltaReceived
+            Bytes_sent_per_sec = deltaSent,
+            Bytes_received_per_sec = deltaReceived
         };
     }
 

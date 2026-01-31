@@ -1,105 +1,154 @@
-﻿using System.Net.Http.Json;
-using Newtonsoft.Json;
-using Spectre.Console;
-using Spectre.Console.Rendering;
-
-namespace SystemDashboard;
+﻿using Spectre.Console;
+using System;
+using System.Threading;
 
 class Program
 {
-    public class StatData {
-        public long Timestamp { get; set; }
-        public CpuStat Cpu { get; set; } = new();
-        public MemoryStat Memory { get; set; } = new();
-        public GpuStat Gpu { get; set; } = new();
-        public DiskStat Disk { get; set; } = new();
-        public NetworkStat Network { get; set; } = new();
-    }
-
-    public class CpuStat { public double Usage { get; set; } }
-    public class MemoryStat { public double Load { get; set; } }
-    public class GpuStat { public int SocketPower { get; set; } public int CorePower { get; set; } }
-    public class DiskStat { public long Read_bytes_per_sec { get; set; } public long Write_bytes_per_sec { get; set; } }
-    public class NetworkStat { public long Bytes_sent_per_sec { get; set; } public long Bytes_received_per_sec { get; set; } }
-
-    static async Task Main(string[] args)
+    static void Main()
     {
-        using var client = new HttpClient();
-        string apiUrl = "http://localhost:1337/stats";
-        var currentStats = new StatData();
+        var layout = BuildLayout();
 
-        await AnsiConsole.Live(CreateDashboard(currentStats))
-            .StartAsync(async ctx =>
+        AnsiConsole.Live(layout)
+            .AutoClear(false)
+            .Start(ctx =>
             {
                 while (true)
                 {
-                    try 
-                    {
-                        var response = await client.GetAsync(apiUrl);
-                        if (response.IsSuccessStatusCode)
-                        {
-                            var json = await response.Content.ReadAsStringAsync();
-                            // If your API returns an array, take the last one. 
-                            // If it returns a single object, remove the List<> part.
-                            var dataList = JsonConvert.DeserializeObject<List<StatData>>(json);
-                            if (dataList != null && dataList.Any())
-                            {
-                                currentStats = dataList.Last();
-                            }
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // Server might be down, we just wait for next cycle
-                    }
-
-                    ctx.UpdateTarget(CreateDashboard(currentStats));
-                    await Task.Delay(5000);
+                    UpdateLayout(layout);
+                    ctx.UpdateTarget(layout);
+                    Thread.Sleep(1000);
                 }
             });
     }
 
-    private static Table CreateDashboard(StatData data)
+    static Layout BuildLayout()
     {
-        // Define exactly ONE column for the main container table
-        var table = new Table()
-            .Centered()
-            .Border(TableBorder.Rounded)
-            .Width(60)
-            .AddColumn(new TableColumn("[bold blue]SYSTEM MONITOR[/]").Centered());
+        return new Layout("Root")
+            .SplitRows(
+                new Layout("Top")
+                    .Ratio(2)
+                    .SplitColumns(
+                        new Layout("CPU"),
+                        new Layout("Memory")
+                    ),
+                new Layout("Network").Ratio(1),
+                new Layout("Disk").Ratio(1),
+                new Layout("GPU").Ratio(1)
+            );
+    }
 
-        // --- ROW 1: CPU & MEMORY (Nested Table) ---
-        var topRowContainer = new Table().NoBorder().HideHeaders().Expand()
-            .AddColumn("Left")
-            .AddColumn("Right");
+    static void UpdateLayout(Layout layout)
+    {
+        layout["CPU"].Update(BuildCpuPanel());
+        layout["Memory"].Update(BuildMemoryPanel());
+        layout["Network"].Update(BuildNetworkPanel());
+        layout["Disk"].Update(BuildDiskPanel());
+        layout["GPU"].Update(BuildGpuPanel());
+    }
 
-        var cpuChart = new BarChart().Width(25).AddItem("CPU %", Math.Round(data.Cpu.Usage, 1), Color.Green);
-        var memChart = new BarChart().Width(25).AddItem("MEM %", Math.Round(data.Memory.Load, 1), Color.Cyan1);
-        
-        topRowContainer.AddRow(cpuChart, memChart);
-        
-        // Add the nested table as a single row entry
-        table.AddRow(topRowContainer);
-        table.AddRow(new Rule().RuleStyle("grey"));
+    static Panel BuildCpuPanel()
+    {
+        int usage = Random.Shared.Next(10, 100);
+        int temp = Random.Shared.Next(45, 85);
 
-        // --- ROW 2: DISK IO ---
-        double diskMb = (data.Disk.Read_bytes_per_sec + data.Disk.Write_bytes_per_sec) / 1024.0 / 1024.0;
-        var diskChart = new BreakdownChart().Width(55)
-            .AddItem($"{diskMb:F2} MB/s", Math.Max(diskMb, 0.001), Color.Yellow);
-        table.AddRow(new Panel(diskChart).Header("Disk IO").Expand());
+        var chart = new BarChart()
+            .Label("[bold]CPU Usage %[/]")
+            .CenterLabel()
+            .AddItem("Load", usage, Color.Red);
 
-        // --- ROW 3: NETWORK ---
-        double netKb = (data.Network.Bytes_sent_per_sec + data.Network.Bytes_received_per_sec) / 1024.0;
-        var netChart = new BreakdownChart().Width(55)
-            .AddItem($"{netKb:F2} KB/s", Math.Max(netKb, 0.001), Color.Purple);
-        table.AddRow(new Panel(netChart).Header("Network").Expand());
+        var grid = new Grid();
+        grid.AddColumn();
+        grid.AddRow(chart);
+        grid.AddRow(new Markup(
+            $"[yellow]Temp:[/] [bold]{temp} °C[/]\n" +
+            $"[cyan]Clock:[/] [bold]4.6 GHz[/]"
+        ));
 
-        // --- ROW 4: GPU POWER ---
-        int gpuW = data.Gpu.CorePower + data.Gpu.SocketPower;
-        var gpuChart = new BreakdownChart().Width(55)
-            .AddItem($"{gpuW} Watts", Math.Max(gpuW, 0.001), Color.Red);
-        table.AddRow(new Panel(gpuChart).Header("GPU Power").Expand());
+        return new Panel(grid)
+        {
+            Header = new PanelHeader("CPU", Justify.Center),
+            Border = BoxBorder.Double,
+            Padding = new Padding(1, 1)
+        };
+    }
 
-        return table;
+    static Panel BuildMemoryPanel()
+    {
+        int usage = Random.Shared.Next(20, 90);
+
+        var chart = new BarChart()
+            .Label("[bold]Memory Usage %[/]")
+            .CenterLabel()
+            .AddItem("RAM", usage, Color.Blue);
+
+        var grid = new Grid();
+        grid.AddColumn();
+        grid.AddRow(chart);
+        grid.AddRow(new Markup(
+            $"[blue]Used:[/] [bold]10.4 GB[/]\n" +
+            $"[grey]Free:[/] [bold]21.6 GB[/]"
+        ));
+
+        return new Panel(grid)
+        {
+            Header = new PanelHeader("Memory", Justify.Center),
+            Border = BoxBorder.Double,
+            Padding = new Padding(1, 1)
+        };
+    }
+
+    static Panel BuildNetworkPanel()
+    {
+        int down = Random.Shared.Next(10, 900);
+        int up = Random.Shared.Next(5, 200);
+
+        var chart = new BarChart()
+            .Label("[bold]Network Mbps[/]")
+            .CenterLabel()
+            .AddItem("Download", down, Color.Green)
+            .AddItem("Upload", up, Color.Yellow);
+
+        return new Panel(chart)
+        {
+            Header = new PanelHeader("Network", Justify.Center),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(1, 1)
+        };
+    }
+
+    static Panel BuildDiskPanel()
+    {
+        int read = Random.Shared.Next(50, 700);
+        int write = Random.Shared.Next(30, 400);
+
+        var chart = new BarChart()
+            .Label("[bold]Disk I/O MB/s[/]")
+            .CenterLabel()
+            .AddItem("Read", read, Color.Green)
+            .AddItem("Write", write, Color.Orange1);
+
+        return new Panel(chart)
+        {
+            Header = new PanelHeader("Disk I/O", Justify.Center),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(1, 1)
+        };
+    }
+
+    static Panel BuildGpuPanel()
+    {
+        int power = Random.Shared.Next(60, 260);
+
+        var chart = new BarChart()
+            .Label("[bold]GPU Power (W)[/]")
+            .CenterLabel()
+            .AddItem("Power", power, Color.Red);
+
+        return new Panel(chart)
+        {
+            Header = new PanelHeader("GPU Power", Justify.Center),
+            Border = BoxBorder.Double,
+            Padding = new Padding(1, 1)
+        };
     }
 }
