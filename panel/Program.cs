@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Spectre.Console;
 using Newtonsoft.Json;
 using Modules;
+using Spectre.Console.Rendering;
 
 namespace SensorPanel
 {
@@ -102,7 +103,7 @@ namespace SensorPanel
             var networkPanel = CreateNetworkPanel(latest, history);
 
             // GPU Panel (if applicable)
-            var gpuPanel = CreateGpuPanel(latest);
+            var gpuPanel = CreateGpuPanel(latest, history);
 
             grid.AddRow(cpuPanel);
             grid.AddRow(memoryPanel);
@@ -236,14 +237,32 @@ namespace SensorPanel
                 .Border(BoxBorder.Rounded);
         }
 
-        static Panel CreateGpuPanel(StatData latest)
+        static Panel CreateGpuPanel(StatData latest, List<StatData> history)
         {
             var socketPower = latest.Gpu.SocketPower;
             var corePower = latest.Gpu.CorePower;
 
-            var content = socketPower == 0 && corePower == 0
-                ? new Markup("[grey]No GPU data available[/]")
-                : new Markup($"[bold purple]Socket: {socketPower}W  |  Core: {corePower}W[/]");
+            IRenderable content;
+
+            if (socketPower == 0 && corePower == 0)
+            {
+                content = new Markup("[grey]No GPU data available[/]");
+            }
+            else
+            {
+                var socketSparkline = CreateSparkline(
+                    history.Select(r => (double)r.Gpu.SocketPower).ToList(), 80);
+                var coreSparkline = CreateSparkline(
+                    history.Select(r => (double)r.Gpu.CorePower).ToList(), 80);
+
+                content = new Rows(
+                    new Markup($"[bold purple]Socket: {socketPower}W[/]"),
+                    new Markup($"[grey]Trend:[/] {socketSparkline}"),
+                    new Text(""),
+                    new Markup($"[bold magenta]Core: {corePower}W[/]"),
+                    new Markup($"[grey]Trend:[/] {coreSparkline}")
+                );
+            }
 
             return new Panel(content)
                 .Header("GPU Power", Justify.Center)
