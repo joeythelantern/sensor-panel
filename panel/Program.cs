@@ -34,28 +34,39 @@ namespace SensorPanel
                 cts.Cancel();
             };
 
-            while (!cts.Token.IsCancellationRequested)
-            {
-                try
-                {
-                    var readings = await FetchSensorData();
-                    if (readings != null && readings.Count > 0)
-                    {
-                        RenderPanel(readings);
-                    }
-                    await Task.Delay(2000, cts.Token); // Update every 2 seconds
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
-                    await Task.Delay(5000, cts.Token);
-                }
-            }
+            // Clear screen once at startup
+            AnsiConsole.Clear();
+            AnsiConsole.Cursor.Hide();
 
+            await AnsiConsole.Live(new Panel("Loading..."))
+                .StartAsync(async ctx =>
+                {
+                    while (!cts.Token.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            var readings = await FetchSensorData();
+                            if (readings != null && readings.Count > 0)
+                            {
+                                var display = BuildDisplay(readings);
+                                ctx.UpdateTarget(display);
+                            }
+                            await Task.Delay(2000, cts.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            ctx.UpdateTarget(new Panel($"[red]Error: {ex.Message}[/]\n\nRetrying...")
+                                .BorderColor(Color.Red));
+                            await Task.Delay(5000, cts.Token);
+                        }
+                    }
+                });
+
+            AnsiConsole.Cursor.Show();
             AnsiConsole.MarkupLine("\n[yellow]Sensor panel stopped.[/]");
         }
 
@@ -66,10 +77,8 @@ namespace SensorPanel
             return readings;
         }
 
-        static void RenderPanel(List<StatData> readings)
+        static Layout BuildDisplay(List<StatData> readings)
         {
-            AnsiConsole.Clear();
-
             var latest = readings[0]; // Index 0 is newest
             var historyCount = Math.Min(20, readings.Count);
             var history = readings.Take(historyCount).Reverse().ToList();
@@ -82,13 +91,13 @@ namespace SensorPanel
 
             // CPU Panel
             var cpuPanel = CreateCpuPanel(latest, history);
-            
+
             // Memory Panel
             var memoryPanel = CreateMemoryPanel(latest, history);
-            
+
             // Disk Panel
             var diskPanel = CreateDiskPanel(latest, history);
-            
+
             // Network Panel
             var networkPanel = CreateNetworkPanel(latest, history);
 
@@ -99,12 +108,12 @@ namespace SensorPanel
             grid.AddRow(memoryPanel);
             grid.AddRow(diskPanel);
             grid.AddRow(networkPanel);
+            grid.AddRow(gpuPanel);
 
             var layout = new Layout("Root")
                 .SplitRows(
                     new Layout("Header").Size(3),
-                    new Layout("Body"),
-                    new Layout("Footer").Size(3)
+                    new Layout("Body")
                 );
 
             layout["Header"].Update(
@@ -116,14 +125,7 @@ namespace SensorPanel
 
             layout["Body"].Update(grid);
 
-            layout["Footer"].Update(
-                new Panel(gpuPanel)
-                    .Header("GPU", Justify.Center)
-                    .BorderColor(Color.Purple)
-                    .Border(BoxBorder.Rounded));
-
-            AnsiConsole.Write(layout);
-            AnsiConsole.MarkupLine("\n[grey]Press Ctrl+C to exit[/]");
+            return layout;
         }
 
         static Panel CreateCpuPanel(StatData latest, List<StatData> history)
@@ -244,9 +246,9 @@ namespace SensorPanel
                 : new Markup($"[bold purple]Socket: {socketPower}W  |  Core: {corePower}W[/]");
 
             return new Panel(content)
-                .BorderColor(Color.Grey)
-                .Border(BoxBorder.None)
-                .Padding(0, 0);
+                .Header("GPU Power", Justify.Center)
+                .BorderColor(Color.Purple)
+                .Border(BoxBorder.Rounded);
         }
 
         static string CreateSparkline(List<double> data, int width)
@@ -262,7 +264,7 @@ namespace SensorPanel
 
             var result = "";
             var step = Math.Max(1, data.Count / width);
-            
+
             for (int i = 0; i < data.Count && result.Length < width; i += step)
             {
                 var normalized = (data[i] - min) / range;
