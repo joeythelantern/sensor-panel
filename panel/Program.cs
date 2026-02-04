@@ -81,7 +81,7 @@ namespace SensorPanel
         static Layout BuildDisplay(List<StatData> readings)
         {
             var latest = readings[0]; // Index 0 is newest
-            var historyCount = Math.Min(20, readings.Count);
+            var historyCount = Math.Min(50, readings.Count);
             var history = readings.Take(historyCount).Reverse().ToList();
 
             var grid = new Grid();
